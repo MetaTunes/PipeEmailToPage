@@ -3,12 +3,6 @@
 include(__DIR__ . '/../../../index.php');
 wire()->log->save('debug', 'emailpipe.php started');
 
-require_once(__DIR__ . '/PipeEmailToPage.module.php');
-require_once(__DIR__ . '/zbateson/mail-mime-parser/src/MailMimeParser.php');
-require_once(__DIR__ . '/zbateson/mail-mime-parser/src/Message.php');
-require_once(__DIR__ . '/zbateson/mail-mime-parser/src/Header/HeaderConsts.php');
-
-wire()->log->save('debug', 'required files included');
 
 use ZBateson\MailMimeParser\MailMimeParser;
 use ZBateson\MailMimeParser\Message;
