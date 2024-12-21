@@ -74,3 +74,6 @@ It is advisable in this case to also have a checkbox field to record whether the
 
 Alternatively, you may wish to process the mails to a blog or news page. In this case, you will need to have fields in your parent template to store the relevant information. 
 Again you can set up a LazyCron task to process the emails and create the pages. As with forwarding you can set up a checkbox field to record whether the email has been processed.
+
+A 'Process' page is provided in setup (or move it where you want) to view the processed emails. 
+If you have ListerPro, you can also set up a custom Lister view to display the emails in a more user-friendly way, so that you can easily filter them etc.
