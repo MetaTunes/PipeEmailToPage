@@ -23,14 +23,32 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 		];
 	}
 
+	/**
+	 * Set default values for configuration settings
+	 */
+	public function setDefaults() {
+		return [
+			'retentionPeriod' => 5,
+		];
+	}
+
 	public function init() {
+		$retention = wire('modules')->getConfig($this->className)['retentionPeriod'];
+		bd($this->retentionPeriod, 'retention');
 // To prevent lock file stopping LazyCron from running, wrap in a try catch block
 // (see https://processwire.com/talk/topic/18216-lazycron-stops-firing/ - I'm not sure the issue is fixed)
 		try {
 			wire()->addHook('LazyCron::everyMinute', $this, 'processQueue');
 		} catch(\Throwable $e) {
-			wire()->log->save('emailpipe', 'Error in LazyCron: ' . $e->getMessage());
+			wire()->log->save('emailpipe', 'Error in LazyCron processQueue: ' . $e->getMessage());
 		}
+		try {
+			wire()->addHook('LazyCron::everyDay', $this, 'cleanUp');
+		} catch(\Throwable $e) {
+			wire()->log->save('emailpipe', 'Error in LazyCron cleanUp: ' . $e->getMessage());
+		}
+		wire()->addHookAfter('Pages::saved', $this, 'processFails');
+		wire()->addHookAfter('Modules::saveConfig', $this, 'processFails');
 	}
 
 	public function processQueue() {
@@ -39,6 +57,37 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 		foreach($files as $file) {
 			//wire()->log->save('emailpipe', 'Processing file: ' . $file);
 			$this->processMessage($file);
+		}
+	}
+
+	public function cleanUp() {
+		$subDirNames = ['quarantine', 'unknown', 'bad'];
+		foreach($subDirNames as $subDirName) {
+			$files = glob(wire('config')->paths->assets . 'emailpipe' . $subDirName .'/' . '*.eml');
+			foreach($files as $file) {
+				// only delete files older than retention period
+				if(filemtime($file) < time() - 60 * 60 * 24 * $retention) {
+					//wire()->log->save('emailpipe', 'Deleting file: ' . $file);
+					unlink($file);
+				}
+			}
+		}
+	}
+
+	public function processFails($event) {
+		$templateArray = wire('modules')->getConfig($this->className)['categoryTemplates'];
+		$template = $event->arguments(0)->template ?? null;
+		if($event->arguments(0) == $this->className || ($template && in_array($template->id, $templateArray))) {
+			$subDirNames = ['quarantine', 'unknown', 'bad'];
+			// put files back in the queue if they have been moved to a subdirectory
+			foreach($subDirNames as $subDirName) {
+				$subDir = wire('config')->paths->assets . 'emailpipe/' . $subDirName . '/';
+				$files = glob($subDir . '*.eml');
+				foreach($files as $filename) {
+					$queueFilename = str_replace($subDirName, 'queue', $filename);
+					rename($filename, $queueFilename);
+				}
+			}
 		}
 	}
 
@@ -120,7 +169,7 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 	 * @param string $filename
 	 */
 	public function processMessage($filename) {
-		wire()->log->save('emailpipe', 'Processing file: ' . $filename);
+//		wire()->log->save('emailpipe', 'Processing file: ' . $filename);
 		// use an instance of MailMimeParser as a class dependency
 		$mailParser = new MailMimeParser();
 // parse() accepts a string, resource or Psr7 StreamInterface
@@ -163,7 +212,6 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 			$parentTemplates = implode('|', $pipeConfig['categoryTemplates']);
 			if(!$parentTemplates) {
 				wire()->log->save('emailpipe', 'No parent templates selected. Moving file to "unknown" subdirectory');
-				wire()->error('PipeEmailToPage: No parent templates selected. Moving file to "unknown" subdirectory');
 				$unknownFilename = str_replace('queue', 'unknown', $filename);
 				rename($filename, $unknownFilename);
 				return;
@@ -172,7 +220,6 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 			$emailToField = (wire()->fields->get($pipeConfig['emailToField'])) ? wire()->fields->get($pipeConfig['emailToField'])->name : null;
 			if(!$emailToField) {
 				wire()->log->save('emailpipe', 'No email to field selected. Moving file to "unknown" subdirectory');
-				wire()->error('PipeEmailToPage: No email to field selected. Moving file to "unknown" subdirectory');
 				$unknownFilename = str_replace('queue', 'unknown', $filename);
 				rename($filename, $unknownFilename);
 				return;
@@ -219,7 +266,6 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 			$mailReceivedPage->of(false);
 			if(!wire()->templates->get($pipeConfig['receivedTemplate'])) {
 				wire()->log->save('emailpipe', 'No received template selected. Moving file to "unknown" subdirectory');
-				wire()->error('PipeEmailToPage: No received template selected. Moving file to "unknown" subdirectory');
 				$unknownFilename = str_replace('queue', 'unknown', $filename);
 				rename($filename, $unknownFilename);
 				return;
@@ -257,15 +303,14 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 				$ext = pathinfo($attachFilename, PATHINFO_EXTENSION);
 				if(in_array(strtolower($ext), ['gif', 'jpg', 'jpeg', 'png', 'peg'])) {
 					$fileFieldName = $emailImages;
+					$fileType = 'image';
 				} else {
 					$fileFieldName = $emailFiles;
+					$fileType = 'file';
 				}
 				if(!$fileFieldName) {
-					wire()->log->save('emailpipe', 'No field selected for attachments. Unable to save attachments. Moving file to "unknown" subdirectory');
-					wire()->error('PipeEmailToPage: No field selected for attachments. Unable to save attachments. Moving file to "unknown" subdirectory');
-					$unknownFilename = str_replace('queue', 'unknown', $filename);
-					rename($filename, $unknownFilename);
-					return;
+					wire()->log->save('emailpipe', "No field selected for $fileType attachments. Unable to save.");
+					continue;
 				}
 				$path = wire()->config->paths->files . $mailReceivedPage->id . '/';
 //				wire()->log->save('emailpipe', 'path/file: ' . $path . $attachFilename);
@@ -301,6 +346,8 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 	 *
 	 */
 	public function getModuleConfigInputfields(InputfieldWrapper $inputfields) {
+		$modules = $this->wire()->modules;
+		$data = array_merge($this->setDefaults(), $modules->getConfig($this));
 
 		// Parents
 		/** @var InputfieldFieldset $parents */
@@ -321,7 +368,7 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 		$f->notes = 'Submit changes to see selectable fields';
 		$f->columnWidth = 50;
 		$f->addOptions($this->templates->find('')->explode('name', ['key' => 'id']));
-		$f->value = $this->$f_name;
+		$f->value = $data[$f_name];
 		$parents->add($f);
 		/**
 		 * Configuration field for email field
@@ -345,7 +392,7 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 				}
 			}
 		}
-		$f->value = $this->$f_name;
+		$f->value = $data[$f_name];
 		$parents->add($f);
 
 		// Received mails
@@ -366,7 +413,7 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 		$f->notes = 'Submit changes to see selectable fields';
 		$f->columnWidth = 100;
 		$f->addOptions($this->templates->find('')->explode('name', ['key' => 'id']));
-		$f->value = $this->$f_name;
+		$f->value = $data[$f_name];
 		$mails->add($f);
 
 		/**
@@ -387,7 +434,7 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 				$f->addOption($field->id, $field->name);
 			}
 		}
-		$f->value = $this->$f_name;
+		$f->value = $data[$f_name];
 		$mails->add($f);
 
 		/**
@@ -409,7 +456,7 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 				$f->addOption($field->id, $field->name);
 			}
 		}
-		$f->value = $this->$f_name;
+		$f->value = $data[$f_name];
 		$mails->add($f);
 
 		/**
@@ -430,7 +477,7 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 				$f->addOption($field->id, $field->name);
 			}
 		}
-		$f->value = $this->$f_name;
+		$f->value = $data[$f_name];
 		$mails->add($f);
 
 		/**
@@ -451,7 +498,7 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 				$f->addOption($field->id, $field->name);
 			}
 		}
-		$f->value = $this->$f_name;
+		$f->value = $data[$f_name];
 		$mails->add($f);
 
 		/**
@@ -472,7 +519,7 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 				$f->addOption($field->id, $field->name);
 			}
 		}
-		$f->value = $this->$f_name;
+		$f->value = $data[$f_name];
 		$mails->add($f);
 
 		/**
@@ -493,7 +540,7 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 				$f->addOption($field->id, $field->name);
 			}
 		}
-		$f->value = $this->$f_name;
+		$f->value = $data[$f_name];
 		$mails->add($f);
 
 		//Black and white lists
@@ -516,7 +563,7 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 		$f->description = 'Enter one or more email addresses / domains to block';
 		$f->notes = 'One email address or domain name per line';
 		$f->columnWidth = 50;
-		$f->value = $this->$f_name;
+		$f->value = $data[$f_name];
 		$lists->add($f);
 
 
@@ -531,8 +578,24 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 		$f->description = 'Enter one or more email addresses / domains to allow';
 		$f->notes = 'One email address or domain name per line';
 		$f->columnWidth = 50;
-		$f->value = $this->$f_name;
+		$f->value = $data[$f_name];
 		$lists->add($f);
+
+		/**
+		 * Configuration field for retention period
+		 * After the specified number of days, the files in the 'unknown', 'quarantine' and 'bad' directories will be deleted
+		 * Until then, processing will be retried after a change of configuration fields or relevant pages
+		 */
+		$f = $this->modules->get('InputfieldInteger');
+		$f_name = 'retentionPeriod';
+		$f->name = $f_name;
+		$f->label = 'Retention Period';
+		$f->description = 'After the specified number of days, the files in the "unknown", "quarantine" and "bad" directories will be deleted';
+		$f->placeholder = 'default = 5';
+		$f->notes = 'Until then, processing will be retried after a change of configuration fields or relevant pages';
+		$f->columnWidth = 100;
+		$f->value = ($data[$f_name] == '') ? 5 : (int) $data[$f_name];
+		$inputfields->add($f);
 
 		// Reporting
 		if($this->modules->isInstalled('ProcessPageListerPro')) {
@@ -556,7 +619,7 @@ class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 			foreach($this->pages->find("template=admin, process=ProcessPageListerPro") as $lister) {
 				$f->addOption($lister->id, $lister->title);
 			}
-			$f->value = $this->$f_name;
+			$f->value = $data[$f_name];
 			$reporting->add($f);
 		}
 

@@ -57,10 +57,20 @@ In other cases, the original email page might be deleted after processing.
 email field (e.g. 'email') as a minimum.
 2. Define your receiving email addresses in pages with that template.
 3. Define a template for pages to hold the received emails (which will be children of the above) - e.g. 'MailReceived'.
-4. Set the above (and the related fields) in the module configuration.
+4. Set the above (and the related fields) in the module configuration. 
+Note that the template and email fields need to be specified otherwise the email will be placed in the 'unknown' subdirectory.
+If other configuration fields are omitted then the email will be processed but the information will be lost.
 5. Define whitelists and blacklists in the module configuration.
 6. By default, emails from all senders will be accepted (subject to whitelists and blacklists). If you want to
 apply special handling of sender, define a hook after PipeEmailToPage::checkSender as described above.
 
 ## Usage
-To be completed.
+After you have completed the configuration and set up the pipe in your hosting service, emails sent to the defined (or default) addresses will be processed and pages created in ProcessWire.
+It is then up to you, the developer, to decide how to process the emails further. 
+
+For example, you may wish to forward the emails. In this case, you will need to have a field in your parent template to store the forwarding addresses (or to store page references to pages which contain them).
+You can then set up a LazyCron task to process the emails and forward them.
+It is advisable in this case to also have a checkbox field to record whether the email has been forwarded (or have some other way of avoiding duplicate processing).
+
+Alternatively, you may wish to process the mails to a blog or news page. In this case, you will need to have fields in your parent template to store the relevant information. 
+Again you can set up a LazyCron task to process the emails and create the pages. As with forwarding you can set up a checkbox field to record whether the email has been processed.
