@@ -63,6 +63,10 @@ If other configuration fields are omitted then the email will be processed but t
 5. Define whitelists and blacklists in the module configuration.
 6. By default, emails from all senders will be accepted (subject to whitelists and blacklists). If you want to
 apply special handling of sender, define a hook after PipeEmailToPage::checkSender as described above.
+7. The configuration also allows you to set a retention period (default is 5 days). 
+During this period, if parent pages are saved with new email addresses, the module will check the 'unknown' directory for emails which were not processed because the parent page did not exist at the time. If the parent page now exists, the email will be processed.
+Also, if the black/white lists have changed, the module will reprocess the emails in the 'quarantine' directory.
+After the retention period, the emails in the unprocessed queues will be deleted.
 
 ## Usage
 After you have completed the configuration and set up the pipe in your hosting service, emails sent to the defined (or default) addresses will be processed and pages created in ProcessWire.
