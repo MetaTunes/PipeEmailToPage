@@ -1,0 +1,8 @@
+{
+    "require": {
+        "zbateson/mail-mime-parser": "^3.0",
+        "mika56/spfcheck": "^2.0",
+        "phpmailer/dkimvalidator": "^0.3.0",
+        "ezyang/htmlpurifier": "^4.18"
+    }
+}
