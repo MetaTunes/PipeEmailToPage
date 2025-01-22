@@ -21,7 +21,7 @@ use HTMLPurifier_AttrTransform_TargetBlank;
 class PipeEmailToPage extends Process implements Module, ConfigurableModule {
 
 
-	public static function getModuleinfo(): array {
+	public static function getModuleInfo(): array {
 		return [
 			'title' => 'PipeEmailToPage',
 			'summary' => 'Receive and manage emails pushed from cPanel',
